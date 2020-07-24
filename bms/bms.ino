@@ -15,6 +15,7 @@ typedef struct {
   int16_t cellVoltage[8];
   int16_t temperature[2];
   int32_t loadCurrent;
+  int32_t loadCharge;
   int16_t balanceVoltage;
 } bms_t;
 
@@ -104,7 +105,7 @@ void process(void) {
   }
 
   currentFilter += bms.loadCurrent - (currentFilter / 256L);
-  int32_t averageCurrent = (currentFilter / 256L);
+  // int32_t averageCurrent = (currentFilter / 256L);
 
   count++;
 
@@ -112,32 +113,47 @@ void process(void) {
   digitalWrite(buzzerPin, output);
 
   if ((count & 0x03) == 0) {
-    // send json status string
-    Serial.print("{\"BMS\":");
-    Serial.print("{\"VC\":[");
-    for (int8_t i = 0; i < 8; i++) {
-      Serial.print(bms.cellVoltage[i]);
-      if (i < 7)
-        Serial.print(",");
-    }
-    Serial.print("],\"T\":[");
-    for (int8_t i = 0; i < 2; i++) {
-      Serial.print(bms.temperature[i]);
-      if (i < 1)
-        Serial.print(",");
-    }
-    Serial.print("],\"IC\":");
-    Serial.print(bms.loadCurrent);
-    Serial.print(",\"IA\":");
-    Serial.print(averageCurrent);
-    Serial.print(",\"VB\":");
-    Serial.print(batterySum);
+    // send influxdb line format
+    // nohup socat /dev/ttyUSB1,b9600 UDP4-DATAGRAM:127.0.0.1:8089 </dev/null >/dev/null 2>&1 &
 
-    Serial.print(",\"P\":");
+    Serial.print("bms ");
+    Serial.print("v=");
+    Serial.print(batterySum);
+    Serial.print(",i=");
+    Serial.print(bms.loadCurrent);
+    Serial.print(",c=");
+    Serial.print(bms.loadCharge / 14400L);
+    Serial.print(",t=");
+    Serial.print(bms.temperature[0]);
+    Serial.print(",p=");
     Serial.print(getPower());
-    Serial.print(",\"E\":");
-    Serial.print(getEnergy());
-    Serial.println("}");
+
+    // send json status string
+    // Serial.print("{\"BMS\":");
+    // Serial.print("{\"VC\":[");
+    // for (int8_t i = 0; i < 8; i++) {
+    //   Serial.print(bms.cellVoltage[i]);
+    //   if (i < 7)
+    //     Serial.print(",");
+    // }
+    // Serial.print("],\"T\":[");
+    // for (int8_t i = 0; i < 2; i++) {
+    //   Serial.print(bms.temperature[i]);
+    //   if (i < 1)
+    //     Serial.print(",");
+    // }
+    // Serial.print("],\"IC\":");
+    // Serial.print(bms.loadCurrent);
+    // Serial.print(",\"IA\":");
+    // Serial.print(averageCurrent);
+    // Serial.print(",\"VB\":");
+    // Serial.print(batterySum);
+    //
+    // Serial.print(",\"P\":");
+    // Serial.print(getPower());
+    // Serial.print(",\"E\":");
+    // Serial.print(getEnergy());
+    // Serial.println("}");
   }
 }
 
@@ -165,6 +181,7 @@ void loop() {
                                     (uint32_t)canMsg.data[2]) -
                           8388608L;
         bms.loadCurrent = current;
+        bms.loadCharge += current;
 
         process();
 
