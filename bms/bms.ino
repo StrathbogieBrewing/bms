@@ -109,24 +109,26 @@ void process(void) {
 
   count++;
 
-  bool output = (count & 0x08);
+  bool output = (count & 0x08) && (bms.loadCharge < -14400000L) &&
+                (bms.loadCurrent < -5000);
   digitalWrite(buzzerPin, output);
 
   if ((count & 0x03) == 0) {
     // send influxdb line format
-    // nohup socat /dev/ttyUSB1,b9600 UDP4-DATAGRAM:127.0.0.1:8089 </dev/null >/dev/null 2>&1 &
+    // nohup socat /dev/ttyUSB1,b9600 UDP4-DATAGRAM:127.0.0.1:8089 </dev/null
+    // >/dev/null 2>&1 &
 
-    Serial.print("bms ");
-    Serial.print("v=");
-    Serial.print(batterySum);
-    Serial.print(",i=");
-    Serial.print(bms.loadCurrent);
-    Serial.print(",c=");
-    Serial.print(bms.loadCharge / 14400L);
-    Serial.print(",t=");
-    Serial.print(bms.temperature[0]);
-    Serial.print(",p=");
-    Serial.print(getPower());
+    // Serial.print("bms ");
+    Serial.print("vb=");
+    Serial.print((float)batterySum / 1000.0);
+    Serial.print(",ic=");
+    Serial.print((float)bms.loadCurrent / 1000.0);
+    Serial.print(",qc=");
+    Serial.print((float)bms.loadCharge / 14400000.0);
+    // Serial.print(",t=");
+    // Serial.print(bms.temperature[0]);
+    Serial.print(",pg=");
+    Serial.println(getPower());
 
     // send json status string
     // Serial.print("{\"BMS\":");
