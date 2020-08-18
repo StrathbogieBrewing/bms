@@ -128,7 +128,8 @@ void process(void) {
     // Serial.print(",t=");
     // Serial.print(bms.temperature[0]);
     Serial.print(",pg=");
-    Serial.println(getPower());
+    Serial.print(getPower());
+    Serial.print("\n");
 
     // send json status string
     // Serial.print("{\"BMS\":");
