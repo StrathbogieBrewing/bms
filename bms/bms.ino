@@ -30,7 +30,7 @@ void extInterruptISR(void) {
   unsigned long m = millis();
   unsigned long p = m - pulseLastTime;
 
-  if (p > 100) {  // ignore pulses less than 100 ms apart
+  if (p > 100) { // ignore pulses less than 100 ms apart
     pulseLastTime = m;
     pulsePeriod = p;
     pulseCount++;
@@ -41,7 +41,6 @@ void powerMeterSetup(void) {
   pinMode(extInterruptPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(extInterruptPin), extInterruptISR,
                   FALLING);
-
 }
 
 unsigned long getPower(void) {
@@ -86,21 +85,21 @@ void process(void) {
   static int32_t chargeMilliCoulombs = 0;
   static int8_t count = 0;
 
-  uint16_t batteryMin = 5000;
-  uint16_t batteryMax = 0;
-  uint16_t batterySum = 0;
+  uint16_t cellMin = 5000;
+  uint16_t cellMax = 0;
+  uint16_t cellSum = 0;
   uint8_t i = 8;
   while (i--) {
     uint16_t v = bms.cellVoltage[i];
-    if (v > batteryMax)
-      batteryMax = v;
-    if (v < batteryMin)
-      batteryMin = v;
-    batterySum += v;
+    if (v > cellMax)
+      cellMax = v;
+    if (v < cellMin)
+      cellMin = v;
+    cellSum += v;
   }
 
-  if (batteryMin > 0) {
-    bms.balanceVoltage = (batterySum / 8);
+  if (cellMax > 0) {
+    bms.balanceVoltage = cellMax - 1; //(cellSum / 8);
     if (bms.balanceVoltage < 3000) {
       bms.balanceVoltage = 3000;
     }
@@ -111,16 +110,14 @@ void process(void) {
   currentAverageSum += bms.chargeMilliAmps;
 
   count++;
-  bool buzzer = (count & 0x08) &&
-                (bms.chargeMilliAmps < -5000);
+  bool buzzer = (count & 0x08) && (bms.chargeMilliAmps < -5000);
   digitalWrite(buzzerPin, buzzer);
 
   if ((count & 0x03) == 0) {
     // update once per second
 
-    // send influxdb line format
-    // nohup socat /dev/ttyUSB1,b9600 UDP4-DATAGRAM:127.0.0.1:8089 </dev/null
-    // >/dev/null 2>&1 &
+    //  nohup socat /dev/ttyUSB1,echo=0,b9600 
+    //  UDP4-DATAGRAM:192.168.8.255:12345,broadcast </dev/null >/dev/null 2>&1 &
 
     int32_t chargeMilliAmps = currentAverageSum / 4;
     currentAverageSum = 0;
@@ -128,13 +125,15 @@ void process(void) {
     chargeMilliCoulombs += chargeMilliAmps;
 
     Serial.print("vbat=");
-    Serial.print((float)batterySum / 1000.0);
+    Serial.print((float)cellSum / 1000.0);
     for (int8_t i = 0; i < 8; i++) {
       Serial.print(",vc");
       Serial.print(i + 1);
       Serial.print("=");
-      Serial.print(bms.cellVoltage[i]);
+      Serial.print((float)bms.cellVoltage[i] / 1000.0, 3);
     }
+    Serial.print(",vbal=");
+    Serial.print((float)bms.balanceVoltage / 1000.0, 3);
     Serial.print(",ibat=");
     Serial.print((float)chargeMilliAmps / 1000.0);
     Serial.print(",qbat=");
@@ -159,7 +158,7 @@ void setup() {
   mcp2515.setBitrate(CAN_250KBPS, MCP_8MHZ);
   mcp2515.setNormalMode();
 
-  // Serial.println("{\"BMS\": \"BOOT\"}");
+  Serial.print("bms=1\n");
 }
 
 void loop() {
