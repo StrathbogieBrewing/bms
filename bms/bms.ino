@@ -14,8 +14,7 @@ const int buzzerPin = 8;
 typedef struct {
   int16_t cellVoltage[8];
   int16_t temperature[2];
-  int32_t loadCurrent;
-  int32_t loadCharge;
+  int32_t chargeMilliAmps;
   int16_t balanceVoltage;
 } bms_t;
 
@@ -30,29 +29,31 @@ static volatile unsigned long pulseLastTime = 0;
 void extInterruptISR(void) {
   unsigned long m = millis();
   unsigned long p = m - pulseLastTime;
-  // ignore pulses less than 100 ms apart
-  if (p > 100) {
+
+  if (p > 100) {  // ignore pulses less than 100 ms apart
     pulseLastTime = m;
     pulsePeriod = p;
     pulseCount++;
   }
-  //
-  // pulseTime = millis();
-  // pulseCount++;
 }
 
 void powerMeterSetup(void) {
   pinMode(extInterruptPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(extInterruptPin), extInterruptISR,
                   FALLING);
+
 }
 
 unsigned long getPower(void) {
   // static unsigned long period = ULONG_MAX;
-  // static unsigned long pulseLastTime = 0L;
+  // static unsigned long lastCallTime = 0L;
+  //
+  // unsigned long m = millis();
+  // unsigned long timeSinceLastCall = m - lastCallTime;
 
   noInterrupts();
   unsigned long p = pulsePeriod;
+  // unsigned long c = pulseCount;
   interrupts();
 
   // if (t) {
@@ -68,18 +69,21 @@ unsigned long getPower(void) {
   //     pulseLastTime = t;
   //   }
   // }
+
   return 1800000L / p;
 }
 
 unsigned long getEnergy(void) {
   noInterrupts();
-  unsigned long p = pulseCount;
+  unsigned long c = pulseCount;
   interrupts();
-  return p / 2;
+  return c / 2;
 }
 
 void process(void) {
-  static int32_t currentFilter = 0;
+  // called 4 times per second, triggered by current shunt canbus message
+  static int32_t currentAverageSum = 0;
+  static int32_t chargeMilliCoulombs = 0;
   static int8_t count = 0;
 
   uint16_t batteryMin = 5000;
@@ -104,59 +108,42 @@ void process(void) {
     bms.balanceVoltage = 0;
   }
 
-  currentFilter += bms.loadCurrent - (currentFilter / 256L);
-  // int32_t averageCurrent = (currentFilter / 256L);
+  currentAverageSum += bms.chargeMilliAmps;
 
   count++;
-
-  bool output = (count & 0x08) && (bms.loadCharge < -14400000L) &&
-                (bms.loadCurrent < -5000);
-  digitalWrite(buzzerPin, output);
+  bool buzzer = (count & 0x08) &&
+                (bms.chargeMilliAmps < -5000);
+  digitalWrite(buzzerPin, buzzer);
 
   if ((count & 0x03) == 0) {
+    // update once per second
+
     // send influxdb line format
     // nohup socat /dev/ttyUSB1,b9600 UDP4-DATAGRAM:127.0.0.1:8089 </dev/null
     // >/dev/null 2>&1 &
 
-    // Serial.print("bms ");
-    Serial.print("vb=");
+    int32_t chargeMilliAmps = currentAverageSum / 4;
+    currentAverageSum = 0;
+
+    chargeMilliCoulombs += chargeMilliAmps;
+
+    Serial.print("vbat=");
     Serial.print((float)batterySum / 1000.0);
-    Serial.print(",ic=");
-    Serial.print((float)bms.loadCurrent / 1000.0);
-    Serial.print(",qc=");
-    Serial.print((float)bms.loadCharge / 14400000.0);
-    // Serial.print(",t=");
-    // Serial.print(bms.temperature[0]);
-    Serial.print(",pg=");
+    for (int8_t i = 0; i < 8; i++) {
+      Serial.print(",vc");
+      Serial.print(i + 1);
+      Serial.print("=");
+      Serial.print(bms.cellVoltage[i]);
+    }
+    Serial.print(",ibat=");
+    Serial.print((float)chargeMilliAmps / 1000.0);
+    Serial.print(",qbat=");
+    Serial.print((float)chargeMilliCoulombs / 3600000.0);
+    Serial.print(",tbat=");
+    Serial.print(bms.temperature[0]);
+    Serial.print(",pgrd=");
     Serial.print(getPower());
     Serial.print("\n");
-
-    // send json status string
-    // Serial.print("{\"BMS\":");
-    // Serial.print("{\"VC\":[");
-    // for (int8_t i = 0; i < 8; i++) {
-    //   Serial.print(bms.cellVoltage[i]);
-    //   if (i < 7)
-    //     Serial.print(",");
-    // }
-    // Serial.print("],\"T\":[");
-    // for (int8_t i = 0; i < 2; i++) {
-    //   Serial.print(bms.temperature[i]);
-    //   if (i < 1)
-    //     Serial.print(",");
-    // }
-    // Serial.print("],\"IC\":");
-    // Serial.print(bms.loadCurrent);
-    // Serial.print(",\"IA\":");
-    // Serial.print(averageCurrent);
-    // Serial.print(",\"VB\":");
-    // Serial.print(batterySum);
-    //
-    // Serial.print(",\"P\":");
-    // Serial.print(getPower());
-    // Serial.print(",\"E\":");
-    // Serial.print(getEnergy());
-    // Serial.println("}");
   }
 }
 
@@ -172,7 +159,7 @@ void setup() {
   mcp2515.setBitrate(CAN_250KBPS, MCP_8MHZ);
   mcp2515.setNormalMode();
 
-  Serial.println("{\"BMS\": \"BOOT\"}");
+  // Serial.println("{\"BMS\": \"BOOT\"}");
 }
 
 void loop() {
@@ -183,8 +170,7 @@ void loop() {
                                     ((uint32_t)canMsg.data[1] << 8) +
                                     (uint32_t)canMsg.data[2]) -
                           8388608L;
-        bms.loadCurrent = current;
-        bms.loadCharge += current;
+        bms.chargeMilliAmps = current;
 
         process();
 
