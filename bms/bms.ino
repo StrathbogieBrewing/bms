@@ -20,30 +20,49 @@ typedef struct {
 
 static bms_t bms;
 
-const byte extInterruptPin = 2;
+const byte gridPowerPin = 2;
+const byte inverterPowerPin = 3;
 
-static volatile unsigned long pulsePeriod = ULONG_MAX;
-static volatile unsigned long pulseCount = 0;
-static volatile unsigned long pulseLastTime = 0;
+static volatile unsigned long gridPulsePeriod = ULONG_MAX;
+static volatile unsigned long gridPulseCount = 0;
+static volatile unsigned long gridPulseLastTime = 0;
 
-void extInterruptISR(void) {
+static volatile unsigned long inverterPulsePeriod = ULONG_MAX;
+static volatile unsigned long inverterPulseCount = 0;
+static volatile unsigned long inverterPulseLastTime = 0;
+
+void gridPowerISR(void) {
   unsigned long m = millis();
-  unsigned long p = m - pulseLastTime;
+  unsigned long p = m - gridPulseLastTime;
 
   if (p > 100) { // ignore pulses less than 100 ms apart
-    pulseLastTime = m;
-    pulsePeriod = p;
-    pulseCount++;
+    gridPulseLastTime = m;
+    gridPulsePeriod = p;
+    gridPulseCount++;
+  }
+}
+
+void inverterPowerISR(void) {
+  unsigned long m = millis();
+  unsigned long p = m - inverterPulseLastTime;
+
+  if (p > 100) { // ignore pulses less than 100 ms apart
+    inverterPulseLastTime = m;
+    inverterPulsePeriod = p;
+    inverterPulseCount++;
   }
 }
 
 void powerMeterSetup(void) {
-  pinMode(extInterruptPin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(extInterruptPin), extInterruptISR,
-                  FALLING);
+  pinMode(gridPowerPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(gridPowerPin), gridPowerISR,
+                    FALLING);
+  pinMode(inverterPowerPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(inverterPowerPin), inverterPowerISR,
+                    FALLING);
 }
 
-unsigned long getPower(void) {
+unsigned long getGridPower(void) {
   // static unsigned long period = ULONG_MAX;
   // static unsigned long lastCallTime = 0L;
   //
@@ -51,30 +70,44 @@ unsigned long getPower(void) {
   // unsigned long timeSinceLastCall = m - lastCallTime;
 
   noInterrupts();
-  unsigned long p = pulsePeriod;
-  // unsigned long c = pulseCount;
+  unsigned long p = gridPulsePeriod;
+  // unsigned long c = gridPulseCount;
   interrupts();
 
   // if (t) {
   //   // update period
-  //   if (pulseLastTime) {
-  //     unsigned long p = t - pulseLastTime;
+  //   if (gridPulseLastTime) {
+  //     unsigned long p = t - gridPulseLastTime;
   //     // debounce / supress noise for min 200 ms
   //     if (p > 200) {
   //       period = p;
-  //       pulseLastTime = t;
+  //       gridPulseLastTime = t;
   //     }
   //   } else {
-  //     pulseLastTime = t;
+  //     gridPulseLastTime = t;
   //   }
   // }
 
   return 1800000L / p;
 }
 
-unsigned long getEnergy(void) {
+unsigned long getInverterPower(void) {
   noInterrupts();
-  unsigned long c = pulseCount;
+  unsigned long p = inverterPulsePeriod;
+  interrupts();
+  return 1800000L / p;
+}
+
+unsigned long gridGetEnergy(void) {
+  noInterrupts();
+  unsigned long c = gridPulseCount;
+  interrupts();
+  return c / 2;
+}
+
+unsigned long inverterGetEnergy(void) {
+  noInterrupts();
+  unsigned long c = gridPulseCount;
   interrupts();
   return c / 2;
 }
@@ -116,7 +149,7 @@ void process(void) {
   if ((count & 0x03) == 0) {
     // update once per second
 
-    //  nohup socat /dev/ttyUSB1,echo=0,b9600 
+    //  nohup socat /dev/ttyUSB1,echo=0,b9600
     //  UDP4-DATAGRAM:192.168.8.255:12345,broadcast </dev/null >/dev/null 2>&1 &
 
     int32_t chargeMilliAmps = currentAverageSum / 4;
@@ -141,7 +174,7 @@ void process(void) {
     Serial.print(",tbat=");
     Serial.print(bms.temperature[0]);
     Serial.print(",pgrd=");
-    Serial.print(getPower());
+    Serial.print(getGridPower());
     Serial.print("\n");
   }
 }
